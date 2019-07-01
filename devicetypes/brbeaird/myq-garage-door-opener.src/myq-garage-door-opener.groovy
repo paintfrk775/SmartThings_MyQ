@@ -1,4 +1,8 @@
 /**
+ * -----------------------
+ * --- DEVICE HANDLER ----
+ * -----------------------
+ *
  *  MyQ Garage Door Opener
  *
  *  Copyright 2018 Jason Mok/Brian Beaird/Barry Burke
@@ -12,22 +16,21 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
- *  Last Updated : 12/06/2018
+ *  Last Updated : 2019-01-04
  *
  */
 metadata {
 	definition (name: "MyQ Garage Door Opener", namespace: "brbeaird", author: "Jason Mok/Brian Beaird/Barry Burke", vid: "generic-contact-4", ocfdevicetype: "oic.d.garagedoor", mnmn: "SmartThings") {
-		capability "Garage Door Control"
 		capability "Door Control"
+		capability "Garage Door Control"
 		capability "Contact Sensor"
 		capability "Refresh"
-		capability "Polling"				// SmartThings will occaisionally poll us (despite their assertions to the contrary). We don't really need this anymore.
+		capability "Polling"
 
 		capability "Actuator"
 		capability "Switch"
 		capability "Momentary"
 		capability "Sensor"
-        capability "Lock"
         //capability "Health Check" Will be needed eventually for new app compatability but is not documented well enough yet
 		
 		attribute "lastActivity", "string"
@@ -38,9 +41,7 @@ metadata {
         
 		command "updateDeviceStatus", ["string"]
 		command "updateDeviceLastActivity", ["number"]
-        command "updateDeviceMoving", ["string"]
-        command "lock"
-        command "unlock"
+        command "updateDeviceMoving", ["string"]        
 	}
 
 	simulator {	}
@@ -49,13 +50,13 @@ metadata {
 		
 		multiAttributeTile(name:"door", type: "lighting", width: 6, height: 4, canChangeIcon: false) {
 			tileAttribute ("device.door", key: "PRIMARY_CONTROL") {
-				attributeState "unknown", label:'${name}', icon:"st.doors.garage.garage-closed",    backgroundColor:"#ffa81e", nextState: "closing"
-				attributeState "closed",  label:'${name}', action:"door control.open",   icon:"st.doors.garage.garage-closed",  backgroundColor:"#00a0dc"
-				attributeState "open",    label:'${name}', action:"door control.close",  icon:"st.doors.garage.garage-open",    backgroundColor:"#e86d13"
-				attributeState "opening", label:'${name}', 								 icon:"st.doors.garage.garage-opening", backgroundColor:"#cec236"
-				attributeState "closing", label:'${name}', 								 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
-				attributeState "waiting", label:'${name}', 								 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
-				attributeState "stopped", label:'${name}', action:"door control.close",  icon:"st.doors.garage.garage-closing", backgroundColor:"#1ee3ff"
+				attributeState "unknown", label:'${name}', icon:"st.doors.garage.garage-closed",    backgroundColor:"#ffa81e"
+				attributeState "closed",  label:'${name}', action:"push",   icon:"st.doors.garage.garage-closed",  backgroundColor:"#00a0dc", nextState: "opening"
+				attributeState "open",    label:'${name}', action:"push",  icon:"st.doors.garage.garage-open",    backgroundColor:"#e86d13", nextState: "closing"
+				attributeState "opening", label:'${name}', action:"push",	 icon:"st.doors.garage.garage-opening", backgroundColor:"#cec236"
+				attributeState "closing", label:'${name}', action:"push",	 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
+				attributeState "waiting", label:'${name}', action:"push",	 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
+				attributeState "stopped", label:'${name}', action:"push",  icon:"st.doors.garage.garage-closing", backgroundColor:"#1ee3ff"
 			}
             tileAttribute("device.lastActivity", key: "SECONDARY_CONTROL") {
         		attributeState("lastActivity", label:'Last Activity: ${currentValue}', defaultState: true)
@@ -92,29 +93,19 @@ metadata {
 	}
 }
 
-def parse(String description) {}
-
-def on() { 
-	if (parent.prefDisableSwitch){
-    	log.error "WARNING: Switch capability has been disabled by SmartApp preferences."        
-    	return 0
-    }
+def on() { 	
     log.debug "Turning door on!"
     open()
     sendEvent(name: "switch", value: "on", isStateChange: true, display: true, displayed: true)	
 }
-def off() { 
-	if (parent.prefDisableSwitch){
-    	log.error "WARNING: Switch capability has been disabled by SmartApp preferences."        
-    	return 0
-    }
+def off() { 	
     log.debug "Turning door off!"
     close()    
 	sendEvent(name: "switch", value: "off", isStateChange: true, display: true, displayed: true)
 }
 
-def push() {
-	def doorState = device.currentState("door")?.value
+def push() {	
+    def doorState = device.currentState("door")?.value
 	if (doorState == "open" || doorState == "stopped") {
 		close()
 	} else if (doorState == "closed") {
@@ -147,25 +138,10 @@ def refresh() {
 
 def poll() { refresh() }
 
-def lock(){
-	log.debug "locked"
-    close()
-    sendEvent(name: "lock", value: "locked", display: false, displayed: false, isStateChange: true)
-}
-
-def unlock(){
-	log.debug "unlocked"
-    open()
-    sendEvent(name: "lock", value: "unlocked", display: false, displayed: false, isStateChange: true)
-}
-
 // update status
 def updateDeviceStatus(status) {	
     
     def currentState = device.currentState("door")?.value
-    def lockState
-    if (device.currentState("lock")?.value == "locked"){lockState = "closed"}
-    if (device.currentState("lock")?.value == "unlocked"){lockState = "open"}
     
     def switchState
     if (device.currentState("switch")?.value == "on"){switchState = "open"}
@@ -174,7 +150,7 @@ def updateDeviceStatus(status) {
     log.debug "Request received to update door status to : " + status    
     
     //Don't do anything if nothing changed
-    if (currentState == status && lockState != status && switchState != status){
+    if (currentState == status && switchState == status){
     	log.debug "No change; door is already set to " + status
         status = ""
     }
@@ -184,16 +160,14 @@ def updateDeviceStatus(status) {
     		log.debug "Door is now open"
 			sendEvent(name: "door", value: "open", display: true, isStateChange: true, descriptionText: device.displayName + " is open") 
 			sendEvent(name: "contact", value: "open", display: false, displayed: false, isStateChange: true)	// make sure we update the hidden states as well
-        	sendEvent(name: "switch", value: "on", display: false, displayed: false, isStateChange: true)		// on == open
-            sendEvent(name: "lock", value: "unlocked", display: false, displayed: false, isStateChange: true)		// unlocked == open
+        	sendEvent(name: "switch", value: "on", display: false, displayed: false, isStateChange: true)		// on == open            
             break
             
         case "closed":
 			log.debug "Door is now closed"
         	sendEvent(name: "door", value: "closed", display: true, isStateChange: true, descriptionText: device.displayName + " is closed")
 			sendEvent(name: "contact", value: "closed", display: false, displayed: false, isStateChange: true)	// update hidden states
-        	sendEvent(name: "switch", value: "off", display: false, displayed: false, isStateChange: true)		// off == closed
-            sendEvent(name: "lock", value: "locked", display: false, displayed: false, isStateChange: true)		// locked == closed
+        	sendEvent(name: "switch", value: "off", display: false, displayed: false, isStateChange: true)		// off == closed            
             break
             
 		case "opening":
@@ -248,24 +222,5 @@ def log(msg){
 }
 
 def showVersion(){
-	return "2.2.0"
+	return "2.2.4"
 }
-
-/*Experimental settings in preparation for new ST app.
-def installed() {
-	sendEvent(name: "checkInterval", value: 4 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "cloud", scheme:"untracked"])
-}
-
-def updated() {
-	sendEvent(name: "checkInterval", value: 4 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "cloud", scheme:"untracked"])
-}
-
-def configure() {
-	sendEvent(name: "checkInterval", value: 4 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "cloud", scheme:"untracked"])
-}
-
-def ping() {
-    logDebug "ping()"	
-    return refresh()
-}
-*/
